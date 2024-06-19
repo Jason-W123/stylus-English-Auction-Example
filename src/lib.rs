@@ -6,14 +6,14 @@ extern crate alloc;
 #[global_allocator]
 static ALLOC: mini_alloc::MiniAlloc = mini_alloc::MiniAlloc::INIT;
 /// Import items from the SDK. The prelude contains common traits and macros.
-use stylus_sdk::{alloy_primitives::{Address, U256}, alloy_sol_types::sol_data, block, call::{transfer_eth, Call}, contract, evm, msg, prelude::*};
-use alloy_sol_types::{sol, SolInterface, SolType};
+use stylus_sdk::{alloy_primitives::{Address, U256}, block, call::{transfer_eth, Call}, contract, evm, msg, prelude::*};
+use alloy_sol_types::{sol};
 
 // Import the IERC721 interface.
 sol_interface! {
     interface IERC721 {
         // Required methods.
-        function safeTransferFrom(address from, address to, uint256 tokenId) external;
+        function safeTransferFrom(address from, address to, uint256 token_id) external;
         function transferFrom(address, address, uint256) external;
     }
 }
@@ -27,6 +27,7 @@ sol!{
     event End(address winner, uint256 amount); // End the auction.
 
     // Define the errors for the contract.
+    error AlreadyInitialized(); // The contract has already been initialized.
     error AlreadyStarted(); // The auction has already started.
     error NotSeller(); // The sender is not the seller.
     error AuctionEnded(); // The auction has ended.
@@ -39,6 +40,7 @@ sol!{
 #[derive(SolidityError)]
 pub enum EnglishAuctionError {
     // Define the errors for the contract.
+    AlreadyInitialized(AlreadyInitialized),
     AlreadyStarted(AlreadyStarted),
     NotSeller(NotSeller),
     AuctionEnded(AuctionEnded),
@@ -70,6 +72,22 @@ sol_storage! {
 #[external]
 impl EnglishAuction {
     pub const ONE_DAY: u64 = 86400; // 1 day = 24 hours * 60 minutes * 60 seconds = 86400 seconds.
+
+    // Initialize program
+    pub fn initialize(&mut self, nft: Address, nft_id: U256, starting_bid: U256) -> Result<(), EnglishAuctionError> {
+        // Check if the contract has already been initialized.
+        if self.seller.get() != Address::default() {
+            // Return an error if the contract has already been initialized.
+            return Err(EnglishAuctionError::AlreadyInitialized(AlreadyInitialized{}));
+        }
+        
+        // Initialize the contract with the NFT address, the NFT ID, the seller, and the starting bid.
+        self.nft_address.set(nft);
+        self.nftId.set(nft_id);
+        self.seller.set(msg::sender());
+        self.highest_bid.set(starting_bid);
+        Ok(())
+    }
 
     pub fn start(&mut self) -> Result<(), EnglishAuctionError> {
         // Check if the auction has already started.
@@ -200,12 +218,12 @@ impl EnglishAuction {
         // Check if there is highest bidder.
         if self.highest_bidder.get() != Address::default() {
             // If there is a highest bidder, transfer the NFT to the highest bidder.
-            nft.safe_transfer_from(config, contract::address(), highest_bidder, nft_id);
+            let _ = nft.safe_transfer_from(config, contract::address(), highest_bidder, nft_id);
             // Transfer the highest bid to the seller.
-            transfer_eth(seller_address, highest_bid);
+            let _ = transfer_eth(seller_address, highest_bid);
         } else {
             // If there is no highest bidder, transfer the NFT back to the seller.
-            nft.safe_transfer_from(config, contract::address(), seller_address, nft_id);
+            let _ = nft.safe_transfer_from(config, contract::address(), seller_address, nft_id);
         }
 
         // Log the end event.
@@ -215,5 +233,4 @@ impl EnglishAuction {
         });
         Ok(())
     }
-
 }
