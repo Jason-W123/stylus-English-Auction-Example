@@ -9,30 +9,36 @@ static ALLOC: mini_alloc::MiniAlloc = mini_alloc::MiniAlloc::INIT;
 use stylus_sdk::{alloy_primitives::{Address, U256}, alloy_sol_types::sol_data, block, call::{transfer_eth, Call}, contract, evm, msg, prelude::*};
 use alloy_sol_types::{sol, SolInterface, SolType};
 
-
+// Import the IERC721 interface.
 sol_interface! {
     interface IERC721 {
+        // Required methods.
         function safeTransferFrom(address from, address to, uint256 tokenId) external;
         function transferFrom(address, address, uint256) external;
     }
 }
 
+// Define the events and errors for the contract.
 sol!{
-    event Start();
-    event Bid(address indexed sender, uint256 amount);
-    event Withdraw(address indexed bidder, uint256 amount);
-    event End(address winner, uint256 amount);
+    // Define the events for the contract.
+    event Start(); // Start the auction.
+    event Bid(address indexed sender, uint256 amount); // Bid on the auction.
+    event Withdraw(address indexed bidder, uint256 amount); // Withdraw a bid.
+    event End(address winner, uint256 amount); // End the auction.
 
-    error AlreadyStarted();
-    error NotSeller();
-    error AuctionEnded();
-    error BidTooLow();
-    error NotStarted();
-    error NotEnded();
+    // Define the errors for the contract.
+    error AlreadyStarted(); // The auction has already started.
+    error NotSeller(); // The sender is not the seller.
+    error AuctionEnded(); // The auction has ended.
+    error BidTooLow(); // The bid is too low.
+    error NotStarted(); // The auction has not started.
+    error NotEnded(); // The auction has not ended.
 }
+
 
 #[derive(SolidityError)]
 pub enum EnglishAuctionError {
+    // Define the errors for the contract.
     AlreadyStarted(AlreadyStarted),
     NotSeller(NotSeller),
     AuctionEnded(AuctionEnded),
@@ -46,48 +52,57 @@ pub enum EnglishAuctionError {
 sol_storage! {
     #[entrypoint]
     pub struct EnglishAuction {
-        address nftAddress;
-        uint256 nftId;
+        address nft_address; // The address of the NFT contract.
+        uint256 nftId; // The ID of the NFT.
 
-        address seller;
-        uint256 endAt;
-        bool started;
-        bool ended;
+        address seller; // The address of the seller.
+        uint256 end_at; // The end time of the auction.
+        bool started; // The auction has started or not.
+        bool ended; // The auction has ended or not.
 
-        address highestBidder;
-        uint256 highestBid;
-        mapping(address => uint256) bids;
+        address highest_bidder; // The address of the highest bidder.
+        uint256 highest_bid; // The highest bid.
+        mapping(address => uint256) bids; // The bids of the bidders.
     }
 }
 
 /// Declare that `Counter` is a contract with the following external methods.
 #[external]
 impl EnglishAuction {
-    pub const ONE_DAY: u64 = 24 * 60 * 60;
+    pub const ONE_DAY: u64 = 86400; // 1 day = 24 hours * 60 minutes * 60 seconds = 86400 seconds.
 
     pub fn start(&mut self) -> Result<(), EnglishAuctionError> {
+        // Check if the auction has already started.
         if self.started.get() {
             return Err(EnglishAuctionError::AlreadyStarted(AlreadyStarted{}));
         }
         
+        // Check if the sender is the seller.
         if self.seller.get() != msg::sender() {
+            // Return an error if the sender is the seller.
             return Err(EnglishAuctionError::NotSeller(NotSeller{}));
         }
         
-        let nft = IERC721::new(*self.nftAddress);
+        // Create a new instance of the IERC721 interface.
+        let nft = IERC721::new(*self.nft_address);
+        // Get the NFT ID.
         let nft_id = self.nftId.get();
 
-        
+        // Transfer the NFT to the contract.
         let config = Call::new();
         let result = nft.transfer_from(config, msg::sender(), contract::address(), nft_id);
         
         match result {
+            // If the transfer is successful, start the auction.
             Ok(_) => {
                 self.started.set(true);
-                self.endAt.set(U256::from(block::timestamp() + 7 * Self::ONE_DAY));
+                // Set the end time of the auction to 7 days from now.
+                self.end_at.set(U256::from(block::timestamp() + 7 * Self::ONE_DAY));
+                // Log the start event.
                 evm::log(Start {});
                 Ok(())
             },
+            // If the transfer fails, return an error.
             Err(_) => {
                 return Err(EnglishAuctionError::NotSeller(NotSeller{}));
             }
@@ -95,29 +110,39 @@ impl EnglishAuction {
         }
     }
 
+    // The bid method allows bidders to place a bid on the auction.
     #[payable]
     pub fn bid(&mut self) -> Result<(), EnglishAuctionError> {
+        // Check if the auction has started.
         if !self.started.get() {
+            // Return an error if the auction has not started.
             return Err(EnglishAuctionError::NotSeller(NotSeller{}));
         }
         
-        if U256::from(block::timestamp()) >= self.endAt.get() {
+        // Check if the auction has ended.
+        if U256::from(block::timestamp()) >= self.end_at.get() {
+            // Return an error if the auction has ended.
             return Err(EnglishAuctionError::AuctionEnded(AuctionEnded{}));
         }
         
-        if msg::value() <= self.highestBid.get() {
+        // Check if the bid amount is higher than the current highest bid.
+        if msg::value() <= self.highest_bid.get() {
+            // Return an error if the bid amount is too low.
             return Err(EnglishAuctionError::BidTooLow(BidTooLow{}));
         }
         
-        if self.highestBidder.get() != Address::default() {
-            let mut bid = self.bids.setter(self.highestBidder.get());
+        // Refund the previous highest bidder. (But will not transfer back at this call, needs bidders to call withdraw() to get back the fund.
+        if self.highest_bidder.get() != Address::default() {
+            let mut bid = self.bids.setter(self.highest_bidder.get());
             let current_bid = bid.get();
-            bid.set(current_bid + self.highestBid.get());
+            bid.set(current_bid + self.highest_bid.get());
         }
         
-        self.highestBidder.set(msg::sender());
-        self.highestBid.set(msg::value());
+        // Update the highest bidder and the highest bid.
+        self.highest_bidder.set(msg::sender());
+        self.highest_bid.set(msg::value());
 
+        // Update the bid of the current bidder.
         evm::log(Bid {
             sender: msg::sender(),
             amount: msg::value(),
@@ -125,12 +150,16 @@ impl EnglishAuction {
         Ok(())
     }
 
+    // The withdraw method allows bidders to withdraw their bid.
     pub fn withdraw(&mut self) -> Result<(), EnglishAuctionError> {
+        // Get the current bid of the bidder.
         let mut current_bid = self.bids.setter(msg::sender());
         let bal = current_bid.get();
+        // Set the record of this bidder to 0 and transfer back tokens.
         current_bid.set(U256::from(0));
-        transfer_eth(msg::sender(), bal);
+        let _ = transfer_eth(msg::sender(), bal);
 
+        // Log the withdraw event.
         evm::log(Withdraw {
             bidder: msg::sender(),
             amount: bal,
@@ -138,39 +167,53 @@ impl EnglishAuction {
         Ok(())
     }
 
+    // The end method allows the seller to end the auction.
     pub fn end(&mut self) -> Result<(), EnglishAuctionError> {
+        // Check if the auction has started.
         if !self.started.get() {
+            // Return an error if the auction has not started.
             return Err(EnglishAuctionError::NotStarted(NotStarted{}));
         }
         
-        if U256::from(block::timestamp()) < self.endAt.get() {
+        // Check if the auction has ended.
+        if U256::from(block::timestamp()) < self.end_at.get() {
+            // Return an error if the auction has not ended.
             return Err(EnglishAuctionError::NotEnded(NotEnded{}));
         }
         
+        // Check if the auction has already ended.
         if self.ended.get() {
+            // Return an error if the auction has already ended.
             return Err(EnglishAuctionError::AuctionEnded(AuctionEnded{}));
         }
         
+        // End the auction and transfer the NFT and the highest bid to the winner.
         self.ended.set(true);
 
         let seller_address = self.seller.get();
-        let highest_bid = self.highestBid.get();
-        let highest_bidder = self.highestBidder.get();
+        let highest_bid = self.highest_bid.get();
+        let highest_bidder = self.highest_bidder.get();
         let nft_id = self.nftId.get();
         let config = Call::new();
-        if self.highestBidder.get() != Address::default() {
-            let nft = IERC721::new(*self.nftAddress);
+        let nft = IERC721::new(*self.nft_address);
+        
+        // Check if there is highest bidder.
+        if self.highest_bidder.get() != Address::default() {
+            // If there is a highest bidder, transfer the NFT to the highest bidder.
             nft.safe_transfer_from(config, contract::address(), highest_bidder, nft_id);
+            // Transfer the highest bid to the seller.
             transfer_eth(seller_address, highest_bid);
         } else {
-            let nft = IERC721::new(*self.nftAddress);
+            // If there is no highest bidder, transfer the NFT back to the seller.
             nft.safe_transfer_from(config, contract::address(), seller_address, nft_id);
         }
 
+        // Log the end event.
         evm::log(End {
             winner: highest_bidder,
             amount: highest_bid,
         });
         Ok(())
     }
+
 }
