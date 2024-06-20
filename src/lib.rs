@@ -5,11 +5,10 @@ extern crate alloc;
 /// Use an efficient WASM allocator.
 #[global_allocator]
 static ALLOC: mini_alloc::MiniAlloc = mini_alloc::MiniAlloc::INIT;
-use std::ops::Add;
 
 /// Import items from the SDK. The prelude contains common traits and macros.
 use stylus_sdk::{alloy_primitives::{Address, U256}, block, call::{transfer_eth, Call}, contract, evm, msg, prelude::*};
-use alloy_sol_types::{sol};
+use alloy_sol_types::sol;
 
 // Import the IERC721 interface.
 sol_interface! {
