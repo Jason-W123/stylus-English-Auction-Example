@@ -5,6 +5,8 @@ extern crate alloc;
 /// Use an efficient WASM allocator.
 #[global_allocator]
 static ALLOC: mini_alloc::MiniAlloc = mini_alloc::MiniAlloc::INIT;
+use std::ops::Add;
+
 /// Import items from the SDK. The prelude contains common traits and macros.
 use stylus_sdk::{alloy_primitives::{Address, U256}, block, call::{transfer_eth, Call}, contract, evm, msg, prelude::*};
 use alloy_sol_types::{sol};
@@ -55,7 +57,7 @@ sol_storage! {
     #[entrypoint]
     pub struct EnglishAuction {
         address nft_address; // The address of the NFT contract.
-        uint256 nftId; // The ID of the NFT.
+        uint256 nft_id; // The ID of the NFT.
 
         address seller; // The address of the seller.
         uint256 end_at; // The end time of the auction.
@@ -73,6 +75,42 @@ sol_storage! {
 impl EnglishAuction {
     pub const ONE_DAY: u64 = 86400; // 1 day = 24 hours * 60 minutes * 60 seconds = 86400 seconds.
 
+    pub fn nft(&self) -> Result<Address, EnglishAuctionError> {
+        Ok(self.nft_address.get())
+    }
+
+    pub fn nft_id(&self) -> Result<U256, EnglishAuctionError> {
+        Ok(self.nft_id.get())
+    }
+
+    pub fn seller(&self) -> Result<Address, EnglishAuctionError> {
+        Ok(self.seller.get())
+    }
+
+    pub fn end_at(&self) -> Result<U256, EnglishAuctionError> {
+        Ok(self.end_at.get())
+    }
+
+    pub fn started(&self) -> Result<bool, EnglishAuctionError> {
+        Ok(self.started.get())
+    }
+
+    pub fn ended(&self) -> Result<bool, EnglishAuctionError> {
+        Ok(self.ended.get())
+    }
+
+    pub fn highest_bidder(&self) -> Result<Address, EnglishAuctionError> {
+        Ok(self.highest_bidder.get())
+    }
+
+    pub fn highest_bid(&self) -> Result<U256, EnglishAuctionError> {
+        Ok(self.highest_bid.get())
+    }
+
+    pub fn bids(&self, bidder: Address) -> Result<U256, EnglishAuctionError> {
+        Ok(self.bids.getter(bidder).get())
+    }
+
     // Initialize program
     pub fn initialize(&mut self, nft: Address, nft_id: U256, starting_bid: U256) -> Result<(), EnglishAuctionError> {
         // Check if the contract has already been initialized.
@@ -83,7 +121,7 @@ impl EnglishAuction {
         
         // Initialize the contract with the NFT address, the NFT ID, the seller, and the starting bid.
         self.nft_address.set(nft);
-        self.nftId.set(nft_id);
+        self.nft_id.set(nft_id);
         self.seller.set(msg::sender());
         self.highest_bid.set(starting_bid);
         Ok(())
@@ -104,7 +142,7 @@ impl EnglishAuction {
         // Create a new instance of the IERC721 interface.
         let nft = IERC721::new(*self.nft_address);
         // Get the NFT ID.
-        let nft_id = self.nftId.get();
+        let nft_id = self.nft_id.get();
 
         // Transfer the NFT to the contract.
         let config = Call::new();
@@ -211,7 +249,7 @@ impl EnglishAuction {
         let seller_address = self.seller.get();
         let highest_bid = self.highest_bid.get();
         let highest_bidder = self.highest_bidder.get();
-        let nft_id = self.nftId.get();
+        let nft_id = self.nft_id.get();
         let config = Call::new();
         let nft = IERC721::new(*self.nft_address);
         
