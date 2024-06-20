@@ -73,39 +73,47 @@ sol_storage! {
 #[external]
 impl EnglishAuction {
     pub const ONE_DAY: u64 = 86400; // 1 day = 24 hours * 60 minutes * 60 seconds = 86400 seconds.
-
+    
+    // Get nft address
     pub fn nft(&self) -> Result<Address, EnglishAuctionError> {
         Ok(self.nft_address.get())
     }
 
+    // Get nft id
     pub fn nft_id(&self) -> Result<U256, EnglishAuctionError> {
         Ok(self.nft_id.get())
     }
-
+    // Get seller address
     pub fn seller(&self) -> Result<Address, EnglishAuctionError> {
         Ok(self.seller.get())
     }
 
+    // Get end time
     pub fn end_at(&self) -> Result<U256, EnglishAuctionError> {
         Ok(self.end_at.get())
     }
 
+    // Get started status
     pub fn started(&self) -> Result<bool, EnglishAuctionError> {
         Ok(self.started.get())
     }
 
+    // Get ended status
     pub fn ended(&self) -> Result<bool, EnglishAuctionError> {
         Ok(self.ended.get())
     }
 
+    // Get highest bidder address
     pub fn highest_bidder(&self) -> Result<Address, EnglishAuctionError> {
         Ok(self.highest_bidder.get())
     }
 
+    // Get highest bid amount
     pub fn highest_bid(&self) -> Result<U256, EnglishAuctionError> {
         Ok(self.highest_bid.get())
     }
 
+    // Get bid amount of a bidder
     pub fn bids(&self, bidder: Address) -> Result<U256, EnglishAuctionError> {
         Ok(self.bids.getter(bidder).get())
     }
